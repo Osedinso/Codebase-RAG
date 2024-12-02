@@ -1,4 +1,4 @@
-CodebaseGPT: AI-Powered Code Understanding Assistant
+<h3>CodebaseGPT: AI-Powered Code Understanding Assistant</h3>
 🔗 Live Demo: Try it here
 CodebaseGPT is an intelligent chatbot that helps developers understand and navigate codebases using Retrieval-Augmented Generation (RAG). By combining vector similarity search with large language models, it provides contextually relevant answers about your code.
 🌟 Features
