@@ -10,124 +10,167 @@ from langchain.schema import Document
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from openai import OpenAI
 
-# Initialize Pinecone
-pc = Pinecone(api_key=st.secrets["PINECONE_API_KEY"])
-pinecone_index = pc.Index("codebase-rag")
-
-# Initialize OpenAI client
-client = OpenAI(
-    base_url="https://api.groq.com/openai/v1",
-    api_key=st.secrets["GROQ_API_KEY"]
+# Page configuration
+st.set_page_config(
+    page_title="CodebaseGPT",
+    page_icon="🤖",
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
-# Function to clone repository
-def clone_repository(repo_url):
-    repo_name = repo_url.split("/")[-1]
-    repo_path = f"/tmp/{repo_name}"
-    Repo.clone_from(repo_url, repo_path)
-    return repo_path
+# Custom CSS
+st.markdown("""
+    <style>
+        .stApp {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .main-header {
+            font-family: 'SF Pro Display', sans-serif;
+            font-weight: 700;
+            color: #1E293B;
+            margin-bottom: 2rem;
+        }
+        .subheader {
+            color: #64748B;
+            font-size: 1.1rem;
+            margin-bottom: 2rem;
+        }
+        .chat-message {
+            padding: 1.5rem;
+            border-radius: 0.5rem;
+            margin-bottom: 1rem;
+            border: 1px solid #E2E8F0;
+        }
+        .user-message {
+            background-color: #F8FAFC;
+        }
+        .bot-message {
+            background-color: #F1F5F9;
+            border-left: 4px solid #075eec;
+        }
+        .metadata {
+            font-size: 0.8rem;
+            color: #64748B;
+        }
+        .stButton>button {
+            width: 100%;
+            border-radius: 0.5rem;
+            height: 3rem;
+            background-color: #075eec;
+            color: white;
+        }
+        .status-box {
+            padding: 1rem;
+            border-radius: 0.5rem;
+            background-color: #F1F5F9;
+            margin-bottom: 1rem;
+        }
+        .error-box {
+            padding: 1rem;
+            border-radius: 0.5rem;
+            background-color: #FEE2E2;
+            color: #991B1B;
+            margin-bottom: 1rem;
+        }
+    </style>
+""", unsafe_allow_html=True)
 
-# Function to get file content
-def get_file_content(file_path, repo_path):
-    try:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-        rel_path = os.path.relpath(file_path, repo_path)
-        return {"name": rel_path, "content": content}
-    except Exception as e:
-        st.error(f"Error processing file {file_path}: {str(e)}")
-        return None
+# Initialize clients
+pc = Pinecone(api_key=st.secrets["PINECONE_API_KEY"])
+pinecone_index = pc.Index("codebase-rag")
+client = OpenAI(base_url="https://api.groq.com/openai/v1", api_key=st.secrets["GROQ_API_KEY"])
 
-# Function to get main files content
-def get_main_files_content(repo_path):
-    SUPPORTED_EXTENSIONS = {'.py', '.js', '.tsx', '.jsx', '.ipynb', '.java', '.cpp', '.ts', '.go', '.rs', '.vue', '.swift', '.c', '.h'}
-    IGNORED_DIRS = {'node_modules', 'venv', 'env', 'dist', 'build', '.git', '__pycache__', '.next', '.vscode', 'vendor'}
-    files_content = []
-    for root, _, files in os.walk(repo_path):
-        if any(ignored_dir in root for ignored_dir in IGNORED_DIRS):
-            continue
-        for file in files:
-            file_path = os.path.join(root, file)
-            if os.path.splitext(file)[1] in SUPPORTED_EXTENSIONS:
-                file_content = get_file_content(file_path, repo_path)
-                if file_content:
-                    files_content.append(file_content)
-    return files_content
+# Existing functions remain the same
+# [Keep all your existing functions here]
 
-# Function to get Hugging Face embeddings
-def get_huggingface_embeddings(text, model_name="sentence-transformers/all-mpnet-base-v2"):
-    model = SentenceTransformer(model_name)
-    return model.encode(text)
+# Main UI
+st.markdown("<h1 class='main-header'>🤖 CodebaseGPT</h1>", unsafe_allow_html=True)
+st.markdown("<p class='subheader'>Your AI-powered code understanding assistant. Enter a GitHub repository URL to begin exploring.</p>", unsafe_allow_html=True)
 
-# Function to get code chunks
-def get_code_chunks(file_content):
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
-    return text_splitter.split_text(file_content)
-
-# Function to perform RAG
-def perform_rag(query, namespace):
-    raw_query_embedding = get_huggingface_embeddings(query)
-    top_matches = pinecone_index.query(vector=raw_query_embedding.tolist(), top_k=5, include_metadata=True, namespace=namespace)
-    contexts = [item['metadata']['text'] for item in top_matches['matches']]
-    augmented_query = "<CONTEXT>\n" + "\n\n-------\n\n".join(contexts[:10]) + "\n-------\n</CONTEXT>\n\n\n\nMY QUESTION:\n" + query
-    system_prompt = """You are a Senior Software Engineer, specializing in TypeScript.
-    Answer any questions I have about the codebase, based on the code provided. Always consider all of the context provided when forming a response."""
-    llm_response = client.chat.completions.create(
-        model="llama-3.1-8b-instant",
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": augmented_query}
-        ]
-    )
-    return llm_response.choices[0].message.content
-
-# Streamlit UI
-st.title("Codebase RAG Chatbot")
-
-# Repository URL input
-repo_url = st.text_input("Enter GitHub Repository URL:")
+# Two-column layout for repository input
+col1, col2 = st.columns([3, 1])
+with col1:
+    repo_url = st.text_input("", placeholder="Enter GitHub repository URL (e.g., https://github.com/username/repo)")
+with col2:
+    analyze_button = st.button("Analyze Repository")
 
 if repo_url:
     if 'repo_processed' not in st.session_state:
         st.session_state.repo_processed = False
+        st.session_state.chat_history = []
 
-    if not st.session_state.repo_processed:
-        with st.spinner("Processing repository..."):
-            # Clone repository
-            repo_path = clone_repository(repo_url)
-            
-            # Get file contents
-            file_content = get_main_files_content(repo_path)
-            
-            # Process and store embeddings
-            documents = []
-            for file in file_content:
-                code_chunks = get_code_chunks(file['content'])
-                for i, chunk in enumerate(code_chunks):
-                    doc = Document(
-                        page_content=chunk,
-                        metadata={"source": file['name'], "chunk_id": i, "text": chunk}
-                    )
-                    documents.append(doc)
-            
-            vectorstore = PineconeVectorStore.from_documents(
-                documents=documents,
-                embedding=HuggingFaceEmbeddings(),
-                index_name="codebase-rag",
-                namespace=repo_url
-            )
-            
-            st.session_state.repo_processed = True
-            st.success("Repository processed and embeddings stored!")
+    if not st.session_state.repo_processed and analyze_button:
+        try:
+            with st.status("🔍 Processing repository...", expanded=True) as status:
+                status.write("Cloning repository...")
+                repo_path = clone_repository(repo_url)
+                
+                status.write("Extracting code files...")
+                file_content = get_main_files_content(repo_path)
+                
+                status.write("Processing and storing embeddings...")
+                documents = []
+                for file in file_content:
+                    code_chunks = get_code_chunks(file['content'])
+                    for i, chunk in enumerate(code_chunks):
+                        doc = Document(
+                            page_content=chunk,
+                            metadata={"source": file['name'], "chunk_id": i, "text": chunk}
+                        )
+                        documents.append(doc)
+                
+                vectorstore = PineconeVectorStore.from_documents(
+                    documents=documents,
+                    embedding=HuggingFaceEmbeddings(),
+                    index_name="codebase-rag",
+                    namespace=repo_url
+                )
+                
+                st.session_state.repo_processed = True
+                status.update(label="✅ Repository processed successfully!", state="complete")
+
+        except Exception as e:
+            st.error(f"Error processing repository: {str(e)}")
+            st.session_state.repo_processed = False
 
     # Chat interface
     if st.session_state.repo_processed:
-        st.subheader("Ask questions about the codebase:")
-        user_question = st.text_input("Your question:")
+        st.markdown("### 💬 Chat with your codebase")
+        
+        # Display chat history
+        for message in st.session_state.chat_history:
+            if message["role"] == "user":
+                st.markdown(f"""
+                    <div class='chat-message user-message'>
+                        <b>You:</b><br>{message["content"]}
+                    </div>
+                """, unsafe_allow_html=True)
+            else:
+                st.markdown(f"""
+                    <div class='chat-message bot-message'>
+                        <b>CodebaseGPT:</b><br>{message["content"]}
+                    </div>
+                """, unsafe_allow_html=True)
+
+        # Question input
+        user_question = st.text_input("Ask a question about the codebase:", key="question_input")
         if user_question:
-            with st.spinner("Generating response..."):
+            # Add user message to history
+            st.session_state.chat_history.append({"role": "user", "content": user_question})
+            
+            with st.spinner("🤔 Analyzing your question..."):
                 response = perform_rag(user_question, repo_url)
-                st.write(response)
+                # Add bot response to history
+                st.session_state.chat_history.append({"role": "assistant", "content": response})
+                
+            # Rerun to update chat display
+            st.experimental_rerun()
+
+        # Clear chat button
+        if st.button("Clear Chat"):
+            st.session_state.chat_history = []
+            st.experimental_rerun()
 
 else:
-    st.info("Please enter a GitHub repository URL to begin.")
+    st.info("👋 Welcome! Please enter a GitHub repository URL to begin exploring your codebase.")
